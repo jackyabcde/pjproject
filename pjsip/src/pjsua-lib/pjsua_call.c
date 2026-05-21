@@ -5749,6 +5749,15 @@ static void pjsua_call_on_rx_offer(pjsip_inv_session *inv,
 
             PJ_LOG(4,(THIS_FILE, "App will manually answer the re-INVITE "
                                  "on call %d", call->index));
+
+            /* Mark async early. App is fully in charge of building/sending
+             * the answer; skip apply_call_setting/create_sdp below because
+             * they reject offers PJSUA does not natively handle (e.g.
+             * m=image-only T.38 re-INVITEs, where audio+video+text count
+             * is zero in pjsua_media_channel_init -> 488). */
+            call->rx_reinv_async = async;
+            call->opt = opt;
+            goto on_return;
         }
         if (code != PJSIP_SC_OK) {
             PJ_LOG(4,(THIS_FILE, "Rejecting re-INVITE updated media offer "

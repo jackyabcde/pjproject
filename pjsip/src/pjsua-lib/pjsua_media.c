@@ -4083,6 +4083,39 @@ static pj_status_t apply_med_update(pjsua_call_media *call_med,
     pjsua_stream_info stream_info = {0};
     pj_str_t *enc_name = NULL;
 
+    /* Detect a media-type change at this slot (e.g. AUDIO->IMAGE on a T.38
+     * re-INVITE answered manually by the app). PJSUA cannot reuse a media
+     * slot across types: the per-type stream_info parsers either reject the
+     * SDP outright (PJMEDIA_EINVALIMEDIATYPE) or, for non-RTP transports
+     * like UDPTL, return success with a zero-filled info that then crashes
+     * pjmedia_stream_create with an uninitialized sockaddr. Tear the slot
+     * down and let the app drive the new media transport itself.
+     */
+    {
+        pjmedia_type new_type =
+            pjmedia_get_type(&local_sdp->media[mi]->desc.media);
+        if (call_med->type != PJMEDIA_TYPE_NONE &&
+            call_med->type != PJMEDIA_TYPE_UNKNOWN &&
+            new_type != call_med->type)
+        {
+            PJ_LOG(4,(THIS_FILE,
+                "Call %d media %d: type changed %s -> %s; tearing down slot",
+                call_id, mi,
+                pjmedia_type_name(call_med->type),
+                pjmedia_type_name(new_type)));
+            stop_media_stream(call, mi);
+            if (call_med->tp) {
+                pjsua_set_media_tp_state(call_med, PJSUA_MED_TP_NULL);
+                pjmedia_transport_close(call_med->tp);
+                call_med->tp = call_med->tp_orig = NULL;
+            }
+            call_med->type  = new_type;
+            call_med->state = PJSUA_CALL_MEDIA_NONE;
+            call_med->dir   = PJMEDIA_DIR_NONE;
+            return PJ_SUCCESS;
+        }
+    }
+
     if (call_med->type == PJMEDIA_TYPE_AUDIO) {
         si = (pjmedia_stream_info_common *)&asi;
         status = pjmedia_stream_info_from_sdp(
